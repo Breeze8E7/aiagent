@@ -1,5 +1,6 @@
 import os
 import sys
+from functions.funcs_for_agent import *
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -78,6 +79,7 @@ When a user asks a question or makes a request, make a function call plan. You c
 All paths you provide should be relative to the working directory. You do not need to specify the working directory in your function calls as it is automatically injected for security reasons.
 """
 verbose = False
+continue_conversation = True
 if "--verbose" in sys.argv:
     verbose = True
     sys.argv.remove("--verbose")
@@ -91,19 +93,28 @@ user_prompt = sys.argv[1]
 messages = [
     types.Content(role="user", parts=[types.Part(text=user_prompt)]),
 ]
-response = client.models.generate_content(
-    model="gemini-2.0-flash-001",
-    contents=messages,
-    config=types.GenerateContentConfig(tools=[available_functions], system_instruction=system_prompt),
-)
-for part in response.candidates[0].content.parts:
-    if isinstance(part, types.Part) and part.function_call:
-        print(f"Calling function: {part.function_call.name}({part.function_call.args})")
-    else:
-        print(part.text)
-        if verbose == True:
-            print(f"User prompt: {user_prompt}")
-            prompt_token_count = response.usage_metadata.prompt_token_count
-            print(f"Prompt tokens: {prompt_token_count}")
-            candidates_token_count = response.usage_metadata.candidates_token_count 
-            print(f"Response tokens: {candidates_token_count}")
+while continue_conversation:
+    response = client.models.generate_content(
+        model="gemini-2.0-flash-001",
+        contents=messages,
+        config=types.GenerateContentConfig(tools=[available_functions], system_instruction=system_prompt),
+    )
+    for part in response.candidates[0].content.parts:
+        if isinstance(part, types.Part) and part.function_call:
+            function_call_result = call_function(part.function_call, verbose)
+            messages.append(response.candidates[0].content)
+            messages.append(function_call_result)
+            if function_call_result.parts[0].function_response.response:
+                if verbose:
+                    print(f"-> {function_call_result.parts[0].function_response.response}")
+            else:
+                raise Exception("Function call did not return expected response structure")
+        else:
+            print(part.text)
+            if verbose == True:
+                print(f"User prompt: {user_prompt}")
+                prompt_token_count = response.usage_metadata.prompt_token_count
+                print(f"Prompt tokens: {prompt_token_count}")
+                candidates_token_count = response.usage_metadata.candidates_token_count 
+                print(f"Response tokens: {candidates_token_count}")
+            continue_conversation = False

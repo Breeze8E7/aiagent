@@ -1,5 +1,6 @@
 import os
 import subprocess
+from google.genai import types
 
 def get_files_info(working_directory, directory=None):
     try:
@@ -85,3 +86,59 @@ def run_python_file(working_directory, file_path):
         return statement
     except Exception as e:
         return f"Error: executing Python file: {e}"
+    
+def call_function(function_call_part, verbose=False):
+    if not isinstance(function_call_part.name, str):
+        return types.Content(
+            role="tool",
+            parts=[
+                types.Part.from_function_response(
+                    name=function_call_part.name,
+                    response={"error": "Function name must be a string."},
+                )
+            ],
+        )
+    if not function_call_part.name:
+        return types.Content(
+            role="tool",
+            parts=[
+                types.Part.from_function_response(
+                    name=function_call_part.name,
+                    response={"error": "Function name cannot be empty."},
+                )
+            ],
+        )
+    if verbose:
+        print(f"Calling function: {function_call_part.name}({function_call_part.args})")
+    else:
+        print(f" - Calling function: {function_call_part.name}")
+    args_copy = function_call_part.args.copy()
+    args_copy['working_directory'] = "./calculator"
+    func_map = {
+        "get_files_info": get_files_info,
+        "get_file_content": get_file_content,
+        "write_file": write_file,
+        "run_python_file": run_python_file
+    }
+    if function_call_part.name in func_map:
+        func = func_map[function_call_part.name]
+        result = func(**args_copy)
+        return types.Content(
+            role="tool",
+            parts=[
+                types.Part.from_function_response(
+                    name=function_call_part.name,
+                    response={"result": result},
+                )
+            ],
+        )
+    else:
+        return types.Content(
+        role="tool",
+        parts=[
+            types.Part.from_function_response(
+                name=function_call_part.name,
+                response={"error": f"Unknown function: {function_call_part.name}"},
+            )
+        ],
+    )
